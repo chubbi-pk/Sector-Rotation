@@ -1,19 +1,20 @@
 # 📊 Sector Rotation Dashboard (RRG Chart)
 
-An interactive Relative Rotation Graph (RRG) dashboard for tracking sector rotation across 11 major sector ETFs using **real-time market data** from Alpha Vantage.
+An interactive Relative Rotation Graph (RRG) dashboard for tracking sector rotation across 11 major sector ETFs using **daily or weekly closing prices** from Alpha Vantage.
 
 ## 🎯 Features
 
-- **Real-time RRG Chart**: Visual representation of sector rotation with live market data
-- **Interactive Controls**: Adjust trail length and time periods
+- **Daily or Weekly Close Data**: Choose between daily and weekly closing prices
+- **Auto-Update**: Fetches new data once per day after market close
+- **Interactive RRG Chart**: Visual representation of sector rotation with live market data
+- **Adjustable Controls**: Switch between daily/weekly and adjust trail length
 - **Sector Analysis Table**: Detailed metrics for each sector
 - **Color-Coded Quadrants**:
   - 🟢 **Leading**: Strong RS & Momentum
   - 🟡 **Weakening**: Strong RS, Weak Momentum
   - 🔴 **Lagging**: Weak RS & Momentum
   - 🔵 **Improving**: Weak RS, Strong Momentum
-- **Auto-refresh**: Updates every 5 minutes during market hours
-- **Live Data**: Powered by Alpha Vantage API
+- **Smart Caching**: Stores data locally to minimize API calls
 
 ## 📈 Tracked Sectors
 
@@ -36,46 +37,76 @@ An interactive Relative Rotation Graph (RRG) dashboard for tracking sector rotat
 Once published on GitHub Pages, your dashboard will be available at:
 `https://YOUR-USERNAME.github.io/rrg-dashboard/`
 
-## 💻 Local Development
+## 💻 How It Works
 
-1. Download all files to a folder
-2. Open `index.html` in your web browser
-3. The dashboard will automatically fetch live market data
+### **Data Fetching**
+1. **First Visit**: Dashboard loads with demo data, then automatically fetches real market data
+2. **Auto-Update**: Checks once per day after market close (4 PM ET)
+3. **Manual Refresh**: Click "🔄 Refresh Data" button anytime to update
+4. **Smart Caching**: Stores data in browser to avoid unnecessary API calls
 
-## 🔑 API Key
+### **Period Selection**
+- **Daily Close**: Uses each day's closing price (Monday-Friday)
+- **Weekly Close**: Uses Friday's closing price for each week
+- Switch between modes instantly - data is recalculated on the fly
 
-This dashboard uses Alpha Vantage API for real-time market data. Your API key is already configured in the code.
+### **Data Flow**
+```
+Alpha Vantage API → Daily Prices → Daily/Weekly Selection → 
+Price Relative (vs SPY) → RS-Ratio → RS-Momentum → RRG Chart
+```
+
+## 🔑 API Configuration
+
+This dashboard uses Alpha Vantage API with your API key already configured.
 
 **Important Notes:**
-- Free tier allows 5 API calls per minute
-- Initial load takes 2-3 minutes (fetching data for all 11 sectors + benchmark)
-- Dashboard auto-refreshes every 5 minutes during market hours
+- Free tier: 5 API calls per minute, 500 calls per day
+- Initial load: ~2-3 minutes (fetching 12 symbols: 11 sectors + SPY)
+- Data caching: Reduces API usage significantly
+- Rate limiting: Dashboard automatically waits 12 seconds between calls
 
-## ⏰ Market Hours
+## 📊 How the Calculations Work
 
-The dashboard automatically detects market hours:
-- **Active updates**: Monday-Friday, 9:30 AM - 4:00 PM EST
-- **Outside market hours**: Data remains cached from last update
+### 1. **Price Relative**
+```
+Price Relative = Sector Price / Benchmark Price (SPY)
+```
 
-## 🔧 How It Works
+### 2. **RS-Ratio** (Normalized to 100)
+```
+RS-Ratio = (Current Price Relative / 14-day Average) × 100
+- Above 100 = Outperforming benchmark
+- Below 100 = Underperforming benchmark
+```
 
-1. **RS-Ratio**: Measures the trend in relative performance (sector vs SPY)
-   - Above 100 = Outperforming benchmark
-   - Below 100 = Underperforming benchmark
+### 3. **RS-Momentum** (Rate of change)
+```
+RS-Momentum = ((Current RS-Ratio - Past RS-Ratio) / Past RS-Ratio) × 100 + 100
+- Above 100 = Momentum improving
+- Below 100 = Momentum weakening
+```
 
-2. **RS-Momentum**: Measures the rate of change in RS-Ratio
-   - Above 100 = Momentum improving
-   - Below 100 = Momentum weakening
+### 4. **Rotation Pattern**
+Sectors typically move clockwise through quadrants:
+```
+Leading → Weakening → Lagging → Improving → Leading
+```
 
-3. **Rotation**: Sectors typically move clockwise through quadrants:
-   - Leading → Weakening → Lagging → Improving → Leading
+## ⏰ Update Schedule
+
+- **Weekdays after 4 PM ET**: Auto-fetches new data once
+- **Weekends**: Uses Friday's closing data
+- **Manual**: Click refresh button anytime
+- **Cached**: Data stored in browser until next day
 
 ## 🎨 Customization
 
 - **Change colors**: Edit `styles.css`
 - **Modify sectors**: Edit the `sectors` array in `script.js`
-- **Adjust calculations**: Modify the RRG calculation functions in `script.js`
+- **Adjust calculations**: Modify period parameters (currently 14 for RS-Ratio, 10 for RS-Momentum)
 - **Change API key**: Update `ALPHA_VANTAGE_API_KEY` in `script.js`
+- **Adjust fetch schedule**: Modify `checkShouldFetchData()` function
 
 ## 📄 License
 
