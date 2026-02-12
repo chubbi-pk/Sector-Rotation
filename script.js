@@ -1,3 +1,7 @@
+// Alpha Vantage API Configuration
+const ALPHA_VANTAGE_API_KEY = 'DRZQJ20ESGYOO5XP';
+const BENCHMARK_SYMBOL = 'SPY'; // S&P 500 ETF as benchmark
+
 // Sector ETF definitions
 const sectors = [
     { symbol: 'XLK', name: 'Technology', color: '#8b5cf6' },
@@ -18,9 +22,12 @@ let canvas, ctx;
 let trailLength = 12;
 let sectorData = {};
 let animationFrame;
+let benchmarkData = null;
+let isLoadingData = false;
+let lastUpdateTime = null;
 
 // Initialize the dashboard
-function init() {
+async function init() {
     canvas = document.getElementById('rrgChart');
     ctx = canvas.getContext('2d');
     
@@ -28,8 +35,11 @@ function init() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     
-    // Initialize sector data
-    initializeSectorData();
+    // Show loading message
+    showLoadingMessage('Loading market data...');
+    
+    // Initialize sector data with real market data
+    await initializeSectorData();
     
     // Event listeners
     document.getElementById('trailLength').addEventListener('input', (e) => {
@@ -38,14 +48,24 @@ function init() {
         drawChart();
     });
     
-    document.getElementById('refreshBtn').addEventListener('click', () => {
-        updateSectorData();
-        drawChart();
-        updateTable();
+    document.getElementById('refreshBtn').addEventListener('click', async () => {
+        if (!isLoadingData) {
+            showLoadingMessage('Refreshing data...');
+            try {
+                await fetchAllSectorData();
+                drawChart();
+                updateTable();
+                updateLastUpdateTime();
+            } catch (error) {
+                console.error('Refresh error:', error);
+                showTemporaryMessage('Refresh failed - using current data', 3000);
+            }
+            hideLoadingMessage();
+        }
     });
     
-    document.getElementById('period').addEventListener('change', () => {
-        updateSectorData();
+    document.getElementById('period').addEventListener('change', async () => {
+        // Just redraw with current data for now
         drawChart();
         updateTable();
     });
@@ -53,13 +73,80 @@ function init() {
     // Initial draw
     drawChart();
     updateTable();
+    updateLastUpdateTime();
     
-    // Auto-refresh every 30 seconds (simulating real-time updates)
-    setInterval(() => {
-        updateSectorData();
-        drawChart();
-        updateTable();
-    }, 30000);
+    // Auto-refresh every 5 minutes during market hours
+    setInterval(async () => {
+        if (isMarketHours()) {
+            console.log('Auto-refreshing data...');
+            await fetchAllSectorData();
+            drawChart();
+            updateTable();
+            updateLastUpdateTime();
+        }
+    }, 300000); // 5 minutes
+}
+
+function showLoadingMessage(message) {
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'loadingMessage';
+    loadingDiv.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(102, 126, 234, 0.95);
+        color: white;
+        padding: 20px 40px;
+        border-radius: 10px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        z-index: 1000;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    `;
+    loadingDiv.textContent = message;
+    
+    const existing = document.getElementById('loadingMessage');
+    if (existing) existing.remove();
+    
+    document.body.appendChild(loadingDiv);
+}
+
+function hideLoadingMessage() {
+    const existing = document.getElementById('loadingMessage');
+    if (existing) existing.remove();
+}
+
+function isMarketHours() {
+    const now = new Date();
+    const day = now.getDay();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const totalMinutes = hours * 60 + minutes;
+    
+    // Monday = 1, Friday = 5
+    // Market hours: 9:30 AM - 4:00 PM EST (570 minutes - 960 minutes)
+    const marketOpen = 9 * 60 + 30; // 9:30 AM
+    const marketClose = 16 * 60; // 4:00 PM
+    
+    return day >= 1 && day <= 5 && totalMinutes >= marketOpen && totalMinutes <= marketClose;
+}
+
+function updateLastUpdateTime() {
+    lastUpdateTime = new Date();
+    const timeString = lastUpdateTime.toLocaleTimeString();
+    const existingTime = document.getElementById('lastUpdate');
+    if (existingTime) {
+        existingTime.textContent = `Last updated: ${timeString}`;
+    } else {
+        const footer = document.querySelector('footer');
+        const timeP = document.createElement('p');
+        timeP.id = 'lastUpdate';
+        timeP.style.fontWeight = '600';
+        timeP.style.color = '#667eea';
+        timeP.textContent = `Last updated: ${timeString}`;
+        footer.insertBefore(timeP, footer.firstChild);
+    }
 }
 
 function resizeCanvas() {
@@ -70,19 +157,268 @@ function resizeCanvas() {
     if (ctx) drawChart();
 }
 
-// Initialize sector data with historical trails
-function initializeSectorData() {
-    sectors.forEach(sector => {
-        sectorData[sector.symbol] = {
-            ...sector,
-            trail: generateInitialTrail(),
-            rsRatio: 100 + (Math.random() - 0.5) * 40,
-            rsMomentum: 100 + (Math.random() - 0.5) * 40
-        };
-    });
+// Fetch daily price data from Alpha Vantage
+async function fetchDailyData(symbol) {
+    const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&outputsize=compact&apikey=${ALPHA_VANTAGE_API_KEY}`;
+    
+    try {
+        // Add timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+        
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        const data = await response.json();
+        
+        if (data['Error Message']) {
+            console.error(`Error fetching ${symbol}:`, data['Error Message']);
+            return null;
+        }
+        
+        if (data['Note']) {
+            console.warn('API call frequency limit reached. Using cached data.');
+            return null;
+        }
+        
+        const timeSeries = data['Time Series (Daily)'];
+        if (!timeSeries) {
+            console.error(`No time series data for ${symbol}`);
+            return null;
+        }
+        
+        // Convert to array of {date, close} objects
+        const prices = Object.entries(timeSeries)
+            .map(([date, values]) => ({
+                date: new Date(date),
+                close: parseFloat(values['4. close'])
+            }))
+            .sort((a, b) => a.date - b.date);
+        
+        return prices;
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            console.error(`Timeout fetching ${symbol}`);
+        } else {
+            console.error(`Error fetching ${symbol}:`, error);
+        }
+        return null;
+    }
 }
 
-// Generate initial trail data
+// Calculate price relative (sector / benchmark)
+function calculatePriceRelative(sectorPrices, benchmarkPrices) {
+    const relatives = [];
+    
+    // Match dates between sector and benchmark
+    for (let i = 0; i < sectorPrices.length; i++) {
+        const sectorDate = sectorPrices[i].date.toISOString().split('T')[0];
+        const benchmarkPrice = benchmarkPrices.find(b => 
+            b.date.toISOString().split('T')[0] === sectorDate
+        );
+        
+        if (benchmarkPrice) {
+            relatives.push({
+                date: sectorPrices[i].date,
+                value: sectorPrices[i].close / benchmarkPrice.close
+            });
+        }
+    }
+    
+    return relatives;
+}
+
+// Calculate RS-Ratio (normalized ratio)
+function calculateRSRatio(priceRelatives, period = 14) {
+    if (priceRelatives.length < period) return [];
+    
+    const rsRatios = [];
+    
+    for (let i = period - 1; i < priceRelatives.length; i++) {
+        const subset = priceRelatives.slice(Math.max(0, i - period + 1), i + 1);
+        const sma = subset.reduce((sum, pr) => sum + pr.value, 0) / subset.length;
+        const current = priceRelatives[i].value;
+        
+        // Normalize to 100
+        const rsRatio = (current / sma) * 100;
+        
+        rsRatios.push({
+            date: priceRelatives[i].date,
+            value: rsRatio
+        });
+    }
+    
+    return rsRatios;
+}
+
+// Calculate RS-Momentum (rate of change of RS-Ratio)
+function calculateRSMomentum(rsRatios, period = 14) {
+    if (rsRatios.length < period) return [];
+    
+    const rsMomentum = [];
+    
+    for (let i = period; i < rsRatios.length; i++) {
+        const current = rsRatios[i].value;
+        const past = rsRatios[i - period].value;
+        
+        // Calculate momentum as percentage change, normalized to 100
+        const momentum = ((current - past) / past) * 100 + 100;
+        
+        rsMomentum.push({
+            date: rsRatios[i].date,
+            value: momentum
+        });
+    }
+    
+    return rsMomentum;
+}
+
+// Initialize sector data with real market data
+async function initializeSectorData() {
+    isLoadingData = true;
+    
+    try {
+        // First, initialize with fallback data immediately so page isn't blank
+        console.log('Initializing with fallback data...');
+        sectors.forEach(sector => {
+            sectorData[sector.symbol] = {
+                ...sector,
+                trail: generateInitialTrail(),
+                rsRatio: 100 + (Math.random() - 0.5) * 40,
+                rsMomentum: 100 + (Math.random() - 0.5) * 40
+            };
+        });
+        
+        // Draw the chart immediately with fallback data
+        hideLoadingMessage();
+        drawChart();
+        updateTable();
+        
+        // Now try to fetch real data in the background
+        console.log('Attempting to fetch real market data...');
+        showLoadingMessage('Fetching live market data... This may take 2-3 minutes');
+        
+        benchmarkData = await fetchDailyData(BENCHMARK_SYMBOL);
+        
+        if (benchmarkData) {
+            console.log('Benchmark data loaded successfully');
+            // Fetch all sector data
+            await fetchAllSectorData();
+            console.log('All sector data loaded successfully');
+        } else {
+            console.warn('Using fallback simulated data');
+            showTemporaryMessage('Using simulated data (API unavailable)', 3000);
+        }
+        
+    } catch (error) {
+        console.error('Error initializing data:', error);
+        showTemporaryMessage('Using simulated data (Error: ' + error.message + ')', 5000);
+    } finally {
+        isLoadingData = false;
+        hideLoadingMessage();
+    }
+}
+
+function showTemporaryMessage(message, duration) {
+    const msgDiv = document.createElement('div');
+    msgDiv.style.cssText = `
+        position: fixed;
+        top: 100px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(245, 158, 11, 0.95);
+        color: white;
+        padding: 15px 30px;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        z-index: 1001;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    `;
+    msgDiv.textContent = message;
+    document.body.appendChild(msgDiv);
+    
+    setTimeout(() => {
+        msgDiv.remove();
+    }, duration);
+}
+
+// Fetch data for all sectors
+async function fetchAllSectorData() {
+    isLoadingData = true;
+    
+    try {
+        for (const sector of sectors) {
+            console.log(`Fetching ${sector.symbol}...`);
+            
+            const sectorPrices = await fetchDailyData(sector.symbol);
+            
+            if (!sectorPrices) {
+                console.warn(`Using fallback data for ${sector.symbol}`);
+                // Use simulated data as fallback
+                if (!sectorData[sector.symbol]) {
+                    sectorData[sector.symbol] = {
+                        ...sector,
+                        trail: generateInitialTrail(),
+                        rsRatio: 100 + (Math.random() - 0.5) * 40,
+                        rsMomentum: 100 + (Math.random() - 0.5) * 40
+                    };
+                }
+                continue;
+            }
+            
+            // Calculate price relative
+            const priceRelatives = calculatePriceRelative(sectorPrices, benchmarkData);
+            
+            // Calculate RS-Ratio
+            const rsRatios = calculateRSRatio(priceRelatives, 14);
+            
+            // Calculate RS-Momentum
+            const rsMomentumValues = calculateRSMomentum(rsRatios, 10);
+            
+            // Get the last N points for the trail
+            const trailPoints = [];
+            const startIndex = Math.max(0, rsMomentumValues.length - trailLength);
+            
+            for (let i = startIndex; i < rsMomentumValues.length; i++) {
+                const rsRatioValue = rsRatios.find(r => 
+                    r.date.getTime() === rsMomentumValues[i].date.getTime()
+                )?.value || 100;
+                
+                trailPoints.push({
+                    rsRatio: rsRatioValue,
+                    rsMomentum: rsMomentumValues[i].value
+                });
+            }
+            
+            // Fill trail if we don't have enough points
+            while (trailPoints.length < trailLength) {
+                trailPoints.unshift({
+                    rsRatio: 100,
+                    rsMomentum: 100
+                });
+            }
+            
+            // Store sector data
+            sectorData[sector.symbol] = {
+                ...sector,
+                trail: trailPoints,
+                rsRatio: trailPoints[trailPoints.length - 1].rsRatio,
+                rsMomentum: trailPoints[trailPoints.length - 1].rsMomentum
+            };
+            
+            // Add delay between API calls to respect rate limits (5 calls per minute for free tier)
+            await new Promise(resolve => setTimeout(resolve, 12000)); // 12 seconds between calls
+        }
+    } catch (error) {
+        console.error('Error fetching sector data:', error);
+    } finally {
+        isLoadingData = false;
+        hideLoadingMessage();
+    }
+}
+
+// Generate initial trail data (fallback for when API fails)
 function generateInitialTrail() {
     const trail = [];
     let rsRatio = 100 + (Math.random() - 0.5) * 30;
@@ -101,41 +437,6 @@ function generateInitialTrail() {
     }
     
     return trail;
-}
-
-// Update sector data (simulating new data)
-function updateSectorData() {
-    sectors.forEach(sector => {
-        const data = sectorData[sector.symbol];
-        
-        // Shift trail
-        data.trail.shift();
-        
-        // Add new point with realistic rotation movement
-        const lastPoint = data.trail[data.trail.length - 1];
-        let newRsRatio = lastPoint.rsRatio + (Math.random() - 0.5) * 3;
-        let newRsMomentum = lastPoint.rsMomentum + (Math.random() - 0.5) * 4;
-        
-        // Simulate clockwise rotation tendency
-        const quadrant = getQuadrant(lastPoint.rsRatio, lastPoint.rsMomentum);
-        if (quadrant === 'leading') {
-            newRsMomentum -= Math.random() * 2; // Tend to move toward weakening
-        } else if (quadrant === 'weakening') {
-            newRsRatio -= Math.random() * 2; // Tend to move toward lagging
-        } else if (quadrant === 'lagging') {
-            newRsMomentum += Math.random() * 2; // Tend to move toward improving
-        } else if (quadrant === 'improving') {
-            newRsRatio += Math.random() * 2; // Tend to move toward leading
-        }
-        
-        // Keep values in reasonable range
-        newRsRatio = Math.max(75, Math.min(125, newRsRatio));
-        newRsMomentum = Math.max(75, Math.min(125, newRsMomentum));
-        
-        data.trail.push({ rsRatio: newRsRatio, rsMomentum: newRsMomentum });
-        data.rsRatio = newRsRatio;
-        data.rsMomentum = newRsMomentum;
-    });
 }
 
 // Get quadrant for RS values

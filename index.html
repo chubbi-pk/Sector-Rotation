@@ -1,51 +1,101 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuantRotate RRG Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #0f172a;
-            color: #f8fafc;
-        }
-        .font-mono {
-            font-family: 'JetBrains+Mono', monospace;
-        }
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #1e293b;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #475569;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #64748b;
-        }
-    </style>
-<script type="importmap">
-{
-  "imports": {
-    "d3": "https://esm.sh/d3@^7.9.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4",
-    "react/": "https://esm.sh/react@^19.2.4/"
-  }
-}
-</script>
+    <title>Sector Rotation Dashboard - RRG Chart</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div id="root"></div>
+    <div class="container">
+        <header>
+            <h1>📊 Sector Rotation Dashboard</h1>
+            <p class="subtitle">Relative Rotation Graph (RRG) - Real-time Sector Analysis</p>
+        </header>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="period">Period:</label>
+                <select id="period">
+                    <option value="1D">1 Day</option>
+                    <option value="1W" selected>1 Week</option>
+                    <option value="1M">1 Month</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="trailLength">Trail Length:</label>
+                <input type="range" id="trailLength" min="5" max="20" value="12" step="1">
+                <span id="trailValue">12</span> periods
+            </div>
+
+            <button id="refreshBtn" class="refresh-btn">🔄 Refresh Data</button>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="rrgChart"></canvas>
+        </div>
+
+        <div class="legend">
+            <h3>Quadrant Guide</h3>
+            <div class="legend-grid">
+                <div class="legend-item">
+                    <div class="legend-color leading"></div>
+                    <div>
+                        <strong>Leading (Green)</strong>
+                        <p>Strong RS & Momentum ↑</p>
+                    </div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color weakening"></div>
+                    <div>
+                        <strong>Weakening (Yellow)</strong>
+                        <p>Strong RS but Momentum ↓</p>
+                    </div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color lagging"></div>
+                    <div>
+                        <strong>Lagging (Red)</strong>
+                        <p>Weak RS & Momentum ↓</p>
+                    </div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color improving"></div>
+                    <div>
+                        <strong>Improving (Blue)</strong>
+                        <p>Weak RS but Momentum ↑</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sectors-table">
+            <h3>Sector Details</h3>
+            <table id="sectorsTable">
+                <thead>
+                    <tr>
+                        <th>Sector</th>
+                        <th>Name</th>
+                        <th>RS-Ratio</th>
+                        <th>RS-Momentum</th>
+                        <th>Quadrant</th>
+                        <th>Distance from Center</th>
+                    </tr>
+                </thead>
+                <tbody id="sectorsTableBody">
+                    <!-- Data will be populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+
+        <footer>
+            <p>Data updates every 5 minutes during market hours (9:30 AM - 4:00 PM EST, Mon-Fri).</p>
+            <p>Powered by <strong>Alpha Vantage API</strong> - Real-time market data for sector rotation analysis.</p>
+            <p class="note">⚠️ Note: Free API tier has rate limits (5 calls/minute). Initial load takes ~2-3 minutes.</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
 </body>
 </html>
