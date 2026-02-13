@@ -1,8 +1,8 @@
-# Sector Rotation Dashboard (RRG Chart)
+# 📊 Sector Rotation Dashboard (RRG Chart)
 
 An interactive Relative Rotation Graph (RRG) dashboard for tracking sector rotation across 11 major sector ETFs using **daily or weekly closing prices** from Yahoo Finance.
 
-## Features
+## 🎯 Features
 
 - **FREE Unlimited Data**: Uses Yahoo Finance API (no API key needed!)
 - **Fast Loading**: ~30 seconds to load all data (vs 2-3 minutes with other APIs)
@@ -34,10 +34,10 @@ An interactive Relative Rotation Graph (RRG) dashboard for tracking sector rotat
 
 **Benchmark**: SPY (S&P 500 ETF)
 
-## Live Demo
+## 🚀 Live Demo
 
 Once published on GitHub Pages, your dashboard will be available at:
-`https://chubbi-pk.github.io/rrg-dashboard/`
+`https://YOUR-USERNAME.github.io/rrg-dashboard/`
 
 ## 💻 How It Works
 
@@ -94,14 +94,14 @@ Sectors typically move clockwise through quadrants:
 Leading → Weakening → Lagging → Improving → Leading
 ```
 
-## Update Schedule
+## ⏰ Update Schedule
 
 - **Weekdays after 4 PM ET**: Auto-fetches new data once
 - **Weekends**: Uses Friday's closing data
 - **Manual**: Click refresh button anytime (~30 seconds)
 - **Cached**: Data stored in browser until next day
 
-## Customization
+## 🎨 Customization
 
 - **Change colors**: Edit `styles.css`
 - **Modify sectors**: Edit the `sectors` array in `script.js`

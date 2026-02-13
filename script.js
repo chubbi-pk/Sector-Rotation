@@ -37,8 +37,8 @@ async function init() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     
-    // Initialize with demo data immediately
-    initializeSectorData();
+    // Show loading immediately - no demo data
+    showLoadingMessage('Loading market data from Yahoo Finance...');
     
     // Event listeners
     document.getElementById('trailLength').addEventListener('input', (e) => {
@@ -57,26 +57,16 @@ async function init() {
         dataMode = e.target.value === '1W' ? 'weekly' : 'daily';
         if (benchmarkData) {
             // Recalculate with new period
+            showLoadingMessage('Recalculating...');
             await processAllSectorData();
             drawChart();
             updateTable();
+            hideLoadingMessage();
         }
     });
     
-    // Initial draw with demo data
-    drawChart();
-    updateTable();
-    updateLastUpdateTime('demo');
-    
-    // Check if we should fetch data
-    const shouldFetch = checkShouldFetchData();
-    
-    if (shouldFetch) {
-        console.log('Auto-fetching market data...');
-        await fetchMarketData();
-    } else {
-        console.log('Using cached data from today');
-    }
+    // Fetch real data immediately
+    await fetchMarketData();
     
     console.log('Dashboard initialized successfully');
 }
@@ -108,56 +98,52 @@ function resizeCanvas() {
     const rect = container.getBoundingClientRect();
     canvas.width = rect.width - 80;
     canvas.height = 600;
-    if (ctx) drawChart();
-}
-
-// Initialize sector data
-function initializeSectorData() {
-    sectors.forEach(sector => {
-        sectorData[sector.symbol] = {
-            ...sector,
-            trail: generateInitialTrail(),
-            rsRatio: 100 + (Math.random() - 0.5) * 40,
-            rsMomentum: 100 + (Math.random() - 0.5) * 40
-        };
-    });
-}
-
-// Generate initial trail data
-function generateInitialTrail() {
-    const trail = [];
-    let rsRatio = 100 + (Math.random() - 0.5) * 30;
-    let rsMomentum = 100 + (Math.random() - 0.5) * 30;
-    
-    for (let i = 0; i < trailLength; i++) {
-        rsRatio += (Math.random() - 0.5) * 5;
-        rsMomentum += (Math.random() - 0.5) * 5;
-        
-        rsRatio = Math.max(70, Math.min(130, rsRatio));
-        rsMomentum = Math.max(70, Math.min(130, rsMomentum));
-        
-        trail.push({ rsRatio, rsMomentum });
-    }
-    
-    return trail;
+    if (ctx && Object.keys(sectorData).length > 0) drawChart();
 }
 
 // Main function to fetch market data
 async function fetchMarketData() {
     isLoadingData = true;
-    showLoadingMessage('Fetching market data from Yahoo Finance... ~30 seconds');
+    showLoadingMessage('Fetching market data from Yahoo Finance... please wait');
     
     try {
         // Fetch benchmark data first
         console.log('Fetching benchmark (SPY)...');
         benchmarkData = await fetchDailyData(BENCHMARK_SYMBOL);
         
-        if (!benchmarkData) {
-            throw new Error('Failed to fetch benchmark data');
+        if (!benchmarkData || benchmarkData.length === 0) {
+            hideLoadingMessage();
+            showTemporaryMessage('❌ Failed to load benchmark data. Please check your internet connection and try again.', 5000);
+            isLoadingData = false;
+            return;
         }
         
-        console.log('Benchmark data loaded, fetching sectors...');
+        console.log(`✓ Benchmark loaded: ${benchmarkData.length} days of data`);
+        
+        // Initialize sector data structure
+        sectors.forEach(sector => {
+            if (!sectorData[sector.symbol]) {
+                sectorData[sector.symbol] = {
+                    ...sector,
+                    trail: [],
+                    rsRatio: 100,
+                    rsMomentum: 100
+                };
+            }
+        });
+        
+        console.log('Fetching sector data...');
         await fetchAllSectorData();
+        
+        // Check if we got at least some data
+        const sectorsWithData = sectors.filter(s => sectorData[s.symbol] && sectorData[s.symbol].trail.length > 0);
+        
+        if (sectorsWithData.length === 0) {
+            hideLoadingMessage();
+            showTemporaryMessage('❌ Failed to load any sector data. Please try again.', 5000);
+            isLoadingData = false;
+            return;
+        }
         
         // Save fetch timestamp
         localStorage.setItem('rrgLastFetch', new Date().toISOString());
@@ -167,71 +153,93 @@ async function fetchMarketData() {
         updateTable();
         updateLastUpdateTime('live');
         
-        showTemporaryMessage('✅ Market data loaded successfully!', 3000);
+        hideLoadingMessage();
+        
+        if (sectorsWithData.length < sectors.length) {
+            showTemporaryMessage(`⚠️ Loaded ${sectorsWithData.length}/${sectors.length} sectors successfully`, 3000);
+        } else {
+            showTemporaryMessage('✅ All market data loaded successfully!', 3000);
+        }
         
     } catch (error) {
         console.error('Error fetching market data:', error);
-        showTemporaryMessage('❌ Error loading data. Using demo data.', 5000);
+        hideLoadingMessage();
+        showTemporaryMessage('❌ Error loading data: ' + error.message, 5000);
     } finally {
         isLoadingData = false;
-        hideLoadingMessage();
     }
 }
 
 // Fetch daily price data from Yahoo Finance (FREE!)
 async function fetchDailyData(symbol) {
-    // Yahoo Finance API via query2.finance.yahoo.com
+    // Using Yahoo Finance query1 (more reliable for CORS)
     const period1 = Math.floor(Date.now() / 1000) - (365 * 24 * 60 * 60); // 1 year ago
     const period2 = Math.floor(Date.now() / 1000); // now
-    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
     
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-        
-        const response = await fetch(url, { 
-            signal: controller.signal,
-            headers: {
-                'User-Agent': 'Mozilla/5.0'
+    // Try multiple endpoints for better reliability
+    const endpoints = [
+        `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`,
+        `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`
+    ];
+    
+    for (const url of endpoints) {
+        try {
+            console.log(`Trying to fetch ${symbol} from Yahoo Finance...`);
+            
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                console.warn(`HTTP ${response.status} for ${symbol}, trying next endpoint...`);
+                continue;
             }
-        });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            
+            if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+                console.warn(`No chart data for ${symbol}, trying next endpoint...`);
+                continue;
+            }
+            
+            const result = data.chart.result[0];
+            
+            if (!result.timestamp || !result.indicators || !result.indicators.quote || !result.indicators.quote[0]) {
+                console.warn(`Invalid data structure for ${symbol}`);
+                continue;
+            }
+            
+            const timestamps = result.timestamp;
+            const closes = result.indicators.quote[0].close;
+            
+            if (!timestamps || !closes || timestamps.length === 0) {
+                console.warn(`Empty data for ${symbol}`);
+                continue;
+            }
+            
+            // Convert to our format
+            const prices = timestamps.map((timestamp, index) => ({
+                date: new Date(timestamp * 1000),
+                close: closes[index]
+            })).filter(p => p.close !== null && p.close !== undefined && !isNaN(p.close));
+            
+            if (prices.length > 0) {
+                console.log(`✓ Successfully fetched ${prices.length} days for ${symbol}`);
+                return prices;
+            }
+            
+        } catch (error) {
+            console.warn(`Error with endpoint for ${symbol}:`, error.message);
+            continue;
         }
-        
-        const data = await response.json();
-        
-        if (!data.chart || !data.chart.result || !data.chart.result[0]) {
-            console.error(`No data for ${symbol}`);
-            return null;
-        }
-        
-        const result = data.chart.result[0];
-        const timestamps = result.timestamp;
-        const closes = result.indicators.quote[0].close;
-        
-        if (!timestamps || !closes) {
-            console.error(`Invalid data structure for ${symbol}`);
-            return null;
-        }
-        
-        // Convert to our format
-        const prices = timestamps.map((timestamp, index) => ({
-            date: new Date(timestamp * 1000),
-            close: closes[index]
-        })).filter(p => p.close !== null); // Remove null values
-        
-        return prices;
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            console.error(`Timeout fetching ${symbol}`);
-        } else {
-            console.error(`Error fetching ${symbol}:`, error);
-        }
-        return null;
     }
+    
+    // If all endpoints fail, return null
+    console.error(`Failed to fetch data for ${symbol} from all endpoints`);
+    return null;
 }
 
 // Convert daily data to weekly closes (Friday closes)
@@ -258,65 +266,113 @@ function convertToWeeklyCloses(dailyPrices) {
 }
 
 async function fetchAllSectorData() {
+    let successCount = 0;
+    
     for (const sector of sectors) {
         console.log(`Fetching ${sector.symbol}...`);
         
         const sectorPrices = await fetchDailyData(sector.symbol);
         
-        if (!sectorPrices) {
-            console.warn(`Failed to fetch ${sector.symbol}, keeping demo data`);
+        if (!sectorPrices || sectorPrices.length === 0) {
+            console.warn(`Failed to fetch ${sector.symbol}`);
             continue;
         }
         
         // Save to localStorage for caching
-        localStorage.setItem(`rrg_${sector.symbol}`, JSON.stringify(sectorPrices));
+        try {
+            localStorage.setItem(`rrg_${sector.symbol}`, JSON.stringify(sectorPrices));
+        } catch (e) {
+            console.warn(`Could not cache ${sector.symbol}:`, e.message);
+        }
         
         // Process the data
         processSectorData(sector.symbol, sectorPrices);
         
         // Update chart progressively
-        drawChart();
-        updateTable();
+        if (sectorData[sector.symbol] && sectorData[sector.symbol].trail.length > 0) {
+            successCount++;
+            drawChart();
+            updateTable();
+        }
         
-        // Small delay to avoid overwhelming the browser (Yahoo has no rate limits!)
-        await new Promise(resolve => setTimeout(resolve, 500)); // Just 0.5 seconds
+        // Small delay to be nice to Yahoo's servers
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
+    
+    console.log(`Successfully loaded ${successCount}/${sectors.length} sectors`);
 }
 
 function processSectorData(symbol, sectorPrices) {
-    // Use weekly or daily based on setting
-    const prices = dataMode === 'weekly' ? convertToWeeklyCloses(sectorPrices) : sectorPrices;
-    const benchmarkPrices = dataMode === 'weekly' ? convertToWeeklyCloses(benchmarkData) : benchmarkData;
-    
-    const priceRelatives = calculatePriceRelative(prices, benchmarkPrices);
-    const rsRatios = calculateRSRatio(priceRelatives, 14);
-    const rsMomentumValues = calculateRSMomentum(rsRatios, 10);
-    
-    const trailPoints = [];
-    const startIndex = Math.max(0, rsMomentumValues.length - trailLength);
-    
-    for (let i = startIndex; i < rsMomentumValues.length; i++) {
-        const rsRatioValue = rsRatios.find(r => 
-            r.date.getTime() === rsMomentumValues[i].date.getTime()
-        )?.value || 100;
+    try {
+        if (!sectorPrices || sectorPrices.length === 0) {
+            console.warn(`No price data for ${symbol}`);
+            return;
+        }
         
-        trailPoints.push({
-            rsRatio: rsRatioValue,
-            rsMomentum: rsMomentumValues[i].value
-        });
+        // Use weekly or daily based on setting
+        const prices = dataMode === 'weekly' ? convertToWeeklyCloses(sectorPrices) : sectorPrices;
+        const benchmarkPrices = dataMode === 'weekly' ? convertToWeeklyCloses(benchmarkData) : benchmarkData;
+        
+        if (!benchmarkPrices || benchmarkPrices.length === 0) {
+            console.warn(`No benchmark data available`);
+            return;
+        }
+        
+        const priceRelatives = calculatePriceRelative(prices, benchmarkPrices);
+        
+        if (priceRelatives.length < 14) {
+            console.warn(`Insufficient data for ${symbol}: only ${priceRelatives.length} points`);
+            return;
+        }
+        
+        const rsRatios = calculateRSRatio(priceRelatives, 14);
+        const rsMomentumValues = calculateRSMomentum(rsRatios, 10);
+        
+        if (rsMomentumValues.length === 0) {
+            console.warn(`Could not calculate momentum for ${symbol}`);
+            return;
+        }
+        
+        const trailPoints = [];
+        const startIndex = Math.max(0, rsMomentumValues.length - trailLength);
+        
+        for (let i = startIndex; i < rsMomentumValues.length; i++) {
+            const rsRatioValue = rsRatios.find(r => 
+                r.date.getTime() === rsMomentumValues[i].date.getTime()
+            )?.value || 100;
+            
+            trailPoints.push({
+                rsRatio: rsRatioValue,
+                rsMomentum: rsMomentumValues[i].value
+            });
+        }
+        
+        // Fill trail if we don't have enough points
+        while (trailPoints.length < trailLength && trailPoints.length > 0) {
+            trailPoints.unshift({
+                rsRatio: trailPoints[0].rsRatio,
+                rsMomentum: trailPoints[0].rsMomentum
+            });
+        }
+        
+        if (trailPoints.length === 0) {
+            console.warn(`No trail points generated for ${symbol}`);
+            return;
+        }
+        
+        const sector = sectors.find(s => s.symbol === symbol);
+        sectorData[symbol] = {
+            ...sector,
+            trail: trailPoints,
+            rsRatio: trailPoints[trailPoints.length - 1].rsRatio,
+            rsMomentum: trailPoints[trailPoints.length - 1].rsMomentum
+        };
+        
+        console.log(`✓ Processed ${symbol}: RS-Ratio=${sectorData[symbol].rsRatio.toFixed(2)}, RS-Momentum=${sectorData[symbol].rsMomentum.toFixed(2)}`);
+        
+    } catch (error) {
+        console.error(`Error processing ${symbol}:`, error);
     }
-    
-    while (trailPoints.length < trailLength) {
-        trailPoints.unshift({ rsRatio: 100, rsMomentum: 100 });
-    }
-    
-    const sector = sectors.find(s => s.symbol === symbol);
-    sectorData[symbol] = {
-        ...sector,
-        trail: trailPoints,
-        rsRatio: trailPoints[trailPoints.length - 1].rsRatio,
-        rsMomentum: trailPoints[trailPoints.length - 1].rsMomentum
-    };
 }
 
 async function processAllSectorData() {
@@ -384,11 +440,27 @@ function showLoadingMessage(message) {
     const existing = document.getElementById('loadingMessage');
     if (existing) existing.remove();
     document.body.appendChild(loadingDiv);
+    
+    // Show placeholder in chart area
+    const placeholder = document.getElementById('chartPlaceholder');
+    const canvas = document.getElementById('rrgChart');
+    if (placeholder && canvas) {
+        placeholder.style.display = 'block';
+        canvas.style.display = 'none';
+    }
 }
 
 function hideLoadingMessage() {
     const existing = document.getElementById('loadingMessage');
     if (existing) existing.remove();
+    
+    // Hide placeholder, show chart
+    const placeholder = document.getElementById('chartPlaceholder');
+    const canvas = document.getElementById('rrgChart');
+    if (placeholder && canvas) {
+        placeholder.style.display = 'none';
+        canvas.style.display = 'block';
+    }
 }
 
 function showTemporaryMessage(message, duration) {
@@ -404,10 +476,9 @@ function showTemporaryMessage(message, duration) {
     setTimeout(() => msgDiv.remove(), duration);
 }
 
-function updateLastUpdateTime(mode = 'demo') {
+function updateLastUpdateTime(mode = 'live') {
     lastUpdateTime = new Date();
     const timeString = lastUpdateTime.toLocaleString();
-    const modeText = mode === 'live' ? 'Live Market Data' : mode === 'demo' ? 'Demo Data' : 'Cached Data';
     const periodText = dataMode === 'weekly' ? 'Weekly Closes' : 'Daily Closes';
     
     let existingTime = document.getElementById('lastUpdate');
@@ -419,7 +490,7 @@ function updateLastUpdateTime(mode = 'demo') {
         existingTime.style.color = '#667eea';
         footer.insertBefore(existingTime, footer.firstChild);
     }
-    existingTime.textContent = `📊 ${modeText} | ${periodText} | Updated: ${timeString}`;
+    existingTime.textContent = `📊 Live Market Data | ${periodText} | Updated: ${timeString}`;
 }
 
 function getQuadrant(rsRatio, rsMomentum) {
