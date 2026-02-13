@@ -1,6 +1,5 @@
-// Alpha Vantage API Configuration
-const ALPHA_VANTAGE_API_KEY = 'DRZQJ20ESGYOO5XP';
-const BENCHMARK_SYMBOL = 'SPY';
+// Yahoo Finance API Configuration (Free, no API key needed!)
+const DATA_SOURCE = 'yahoo'; // Using Yahoo Finance
 
 // Sector ETF definitions
 const sectors = [
@@ -26,6 +25,7 @@ let isLoadingData = false;
 let lastUpdateTime = null;
 let lastFetchDate = null;
 let dataMode = 'weekly'; // 'daily' or 'weekly'
+const BENCHMARK_SYMBOL = 'SPY';
 
 // Initialize the dashboard
 async function init() {
@@ -145,7 +145,7 @@ function generateInitialTrail() {
 // Main function to fetch market data
 async function fetchMarketData() {
     isLoadingData = true;
-    showLoadingMessage('Fetching market data... This takes 2-3 minutes due to API rate limits');
+    showLoadingMessage('Fetching market data from Yahoo Finance... ~30 seconds');
     
     try {
         // Fetch benchmark data first
@@ -178,33 +178,58 @@ async function fetchMarketData() {
     }
 }
 
+// Fetch daily price data from Yahoo Finance (FREE!)
 async function fetchDailyData(symbol) {
-    const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&outputsize=full&apikey=${ALPHA_VANTAGE_API_KEY}`;
+    // Yahoo Finance API via query2.finance.yahoo.com
+    const period1 = Math.floor(Date.now() / 1000) - (365 * 24 * 60 * 60); // 1 year ago
+    const period2 = Math.floor(Date.now() / 1000); // now
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
     
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000);
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         
-        const response = await fetch(url, { signal: controller.signal });
+        const response = await fetch(url, { 
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'Mozilla/5.0'
+            }
+        });
         clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         
         const data = await response.json();
         
-        if (data['Error Message'] || data['Note'] || !data['Time Series (Daily)']) {
+        if (!data.chart || !data.chart.result || !data.chart.result[0]) {
+            console.error(`No data for ${symbol}`);
             return null;
         }
         
-        const timeSeries = data['Time Series (Daily)'];
-        const prices = Object.entries(timeSeries)
-            .map(([date, values]) => ({
-                date: new Date(date),
-                close: parseFloat(values['4. close'])
-            }))
-            .sort((a, b) => a.date - b.date);
+        const result = data.chart.result[0];
+        const timestamps = result.timestamp;
+        const closes = result.indicators.quote[0].close;
+        
+        if (!timestamps || !closes) {
+            console.error(`Invalid data structure for ${symbol}`);
+            return null;
+        }
+        
+        // Convert to our format
+        const prices = timestamps.map((timestamp, index) => ({
+            date: new Date(timestamp * 1000),
+            close: closes[index]
+        })).filter(p => p.close !== null); // Remove null values
         
         return prices;
     } catch (error) {
-        console.error(`Error fetching ${symbol}:`, error);
+        if (error.name === 'AbortError') {
+            console.error(`Timeout fetching ${symbol}`);
+        } else {
+            console.error(`Error fetching ${symbol}:`, error);
+        }
         return null;
     }
 }
@@ -253,8 +278,8 @@ async function fetchAllSectorData() {
         drawChart();
         updateTable();
         
-        // Wait between API calls (5 calls/minute = 12 seconds)
-        await new Promise(resolve => setTimeout(resolve, 12000));
+        // Small delay to avoid overwhelming the browser (Yahoo has no rate limits!)
+        await new Promise(resolve => setTimeout(resolve, 500)); // Just 0.5 seconds
     }
 }
 

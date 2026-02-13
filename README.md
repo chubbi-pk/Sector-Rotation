@@ -1,12 +1,14 @@
 # 📊 Sector Rotation Dashboard (RRG Chart)
 
-An interactive Relative Rotation Graph (RRG) dashboard for tracking sector rotation across 11 major sector ETFs using **daily or weekly closing prices** from Alpha Vantage.
+An interactive Relative Rotation Graph (RRG) dashboard for tracking sector rotation across 11 major sector ETFs using **daily or weekly closing prices** from Yahoo Finance.
 
 ## 🎯 Features
 
+- **FREE Unlimited Data**: Uses Yahoo Finance API (no API key needed!)
+- **Fast Loading**: ~30 seconds to load all data (vs 2-3 minutes with other APIs)
 - **Daily or Weekly Close Data**: Choose between daily and weekly closing prices
 - **Auto-Update**: Fetches new data once per day after market close
-- **Interactive RRG Chart**: Visual representation of sector rotation with live market data
+- **Interactive RRG Chart**: Visual representation of sector rotation
 - **Adjustable Controls**: Switch between daily/weekly and adjust trail length
 - **Sector Analysis Table**: Detailed metrics for each sector
 - **Color-Coded Quadrants**:
@@ -40,7 +42,7 @@ Once published on GitHub Pages, your dashboard will be available at:
 ## 💻 How It Works
 
 ### **Data Fetching**
-1. **First Visit**: Dashboard loads with demo data, then automatically fetches real market data
+1. **First Visit**: Dashboard loads with demo data, then automatically fetches real market data (~30 seconds)
 2. **Auto-Update**: Checks once per day after market close (4 PM ET)
 3. **Manual Refresh**: Click "🔄 Refresh Data" button anytime to update
 4. **Smart Caching**: Stores data in browser to avoid unnecessary API calls
@@ -52,19 +54,18 @@ Once published on GitHub Pages, your dashboard will be available at:
 
 ### **Data Flow**
 ```
-Alpha Vantage API → Daily Prices → Daily/Weekly Selection → 
+Yahoo Finance API → Daily Prices → Daily/Weekly Selection → 
 Price Relative (vs SPY) → RS-Ratio → RS-Momentum → RRG Chart
 ```
 
 ## 🔑 API Configuration
 
-This dashboard uses Alpha Vantage API with your API key already configured.
-
-**Important Notes:**
-- Free tier: 5 API calls per minute, 500 calls per day
-- Initial load: ~2-3 minutes (fetching 12 symbols: 11 sectors + SPY)
-- Data caching: Reduces API usage significantly
-- Rate limiting: Dashboard automatically waits 12 seconds between calls
+This dashboard uses **Yahoo Finance API** - completely FREE with:
+- ✅ **No API key required**
+- ✅ **No rate limits**
+- ✅ **Unlimited requests**
+- ✅ **Fast response times** (~30 seconds for all 12 symbols)
+- ✅ **No registration needed**
 
 ## 📊 How the Calculations Work
 
@@ -97,7 +98,7 @@ Leading → Weakening → Lagging → Improving → Leading
 
 - **Weekdays after 4 PM ET**: Auto-fetches new data once
 - **Weekends**: Uses Friday's closing data
-- **Manual**: Click refresh button anytime
+- **Manual**: Click refresh button anytime (~30 seconds)
 - **Cached**: Data stored in browser until next day
 
 ## 🎨 Customization
@@ -105,7 +106,7 @@ Leading → Weakening → Lagging → Improving → Leading
 - **Change colors**: Edit `styles.css`
 - **Modify sectors**: Edit the `sectors` array in `script.js`
 - **Adjust calculations**: Modify period parameters (currently 14 for RS-Ratio, 10 for RS-Momentum)
-- **Change API key**: Update `ALPHA_VANTAGE_API_KEY` in `script.js`
+- **Add more ETFs**: Just add to the `sectors` array
 - **Adjust fetch schedule**: Modify `checkShouldFetchData()` function
 
 ## 📄 License
